@@ -100,7 +100,19 @@ Make the user feel the history. Don't just inform them; entertain them. The user
       res.json({ data, sources });
     } catch (error: any) {
       console.error("Server Error:", error);
-      res.status(500).json({ error: error.message });
+      
+      let message = "An unexpected error occurred while consulting the archives.";
+      
+      if (error.message?.includes("429") || error.message?.includes("RESOURCE_EXHAUSTED")) {
+        message = "Yappa! The chronicler is exhausted from too many stories. Please wait a minute and try again.";
+      } else if (error.message?.includes("401") || error.message?.includes("API_KEY_INVALID")) {
+        message = "Archive key invalid. Please check the secret configuration.";
+      } else if (error.message) {
+        // Try to return a cleaner version of the error message if possible
+        message = error.message.length > 200 ? "The chronicler encountered a complex error in the archives." : error.message;
+      }
+
+      res.status(500).json({ error: message });
     }
   });
 
