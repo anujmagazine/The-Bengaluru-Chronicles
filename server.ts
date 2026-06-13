@@ -14,17 +14,14 @@ async function startServer() {
   app.use(express.json());
 
   // Helper for lazy Gemini initialization
-  let aiClient: any = null;
+  let aiClient: GoogleGenAI | null = null;
   const getAiClient = () => {
     if (!aiClient) {
       const key = process.env.GEMINI_API_KEY;
       if (!key) {
-        throw new Error("GEMINI_API_KEY not found. Add it in Settings > Secrets.");
+        throw new Error("GEMINI_API_KEY not found. Please add it in Settings > Secrets.");
       }
-      aiClient = new GoogleGenAI({ 
-        apiKey: key,
-        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } }
-      });
+      aiClient = new GoogleGenAI(key);
     }
     return aiClient;
   };
@@ -61,29 +58,39 @@ Make the user feel the history. Don't just inform them; entertain them. The user
 }
 `;
 
+  // Simple in-memory cache to preserve quota and speed up repeated queries
+  const cache = new Map<string, { data: any, sources: any[] }>();
+
   // API Routes
   app.post("/api/chronicle", async (req, res) => {
     try {
       const { query } = req.body;
       if (!query) return res.status(400).json({ error: "Query is required" });
-      const ai = getAiClient();
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: `Tell me the chronicle of: ${query}. Return ONLY raw JSON object.`,
-        config: { 
-          systemInstruction: SYSTEM_INSTRUCTION, 
-          tools: [{ googleSearch: {} }] 
-        },
+      
+      const cacheKey = query.toLowerCase().trim();
+      if (cache.has(cacheKey)) {
+        console.log(`[Archives Cache Hit] Serving story for: ${cacheKey}`);
+        return res.json(cache.get(cacheKey));
+      }
+
+      const genAI = getAiClient();
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-1.5-flash",
+        systemInstruction: SYSTEM_INSTRUCTION,
+        tools: [{ googleSearch: {} }] 
       });
 
-      const text = response.text;
+      const result = await model.generateContent(`Tell me the chronicle of: ${query}. Return ONLY the raw JSON object.`);
+      const response = await result.response;
+      const text = response.text();
+      
       const cleanJson = text.replace(/```json|```/g, '').trim();
       let data;
       try {
         data = JSON.parse(cleanJson);
       } catch (e) {
         console.error("Parse Error:", text);
-        return res.status(500).json({ error: "The archives returned unreadable data. Try again swalpa later." });
+        return res.status(500).json({ error: "The archives returned unreadable data. Please try another place." });
       }
 
       // Extract grounding sources
@@ -97,19 +104,21 @@ Make the user feel the history. Don't just inform them; entertain them. The user
         });
       }
 
-      res.json({ data, sources });
+      const responseBody = { data, sources };
+      cache.set(cacheKey, responseBody);
+      res.json(responseBody);
     } catch (error: any) {
       console.error("Server Error:", error);
       
       let message = "An unexpected error occurred while consulting the archives.";
+      const errStr = error.toString();
       
-      if (error.message?.includes("429") || error.message?.includes("RESOURCE_EXHAUSTED")) {
+      if (errStr.includes("429") || errStr.includes("RESOURCE_EXHAUSTED")) {
         message = "Yappa! The chronicler is exhausted from too many stories. Please wait a minute and try again.";
-      } else if (error.message?.includes("401") || error.message?.includes("API_KEY_INVALID")) {
+      } else if (errStr.includes("401") || errStr.includes("API_KEY_INVALID")) {
         message = "Archive key invalid. Please check the secret configuration.";
       } else if (error.message) {
-        // Try to return a cleaner version of the error message if possible
-        message = error.message.length > 200 ? "The chronicler encountered a complex error in the archives." : error.message;
+        message = error.message.length > 200 ? "The chronicler encountered a complex error." : error.message;
       }
 
       res.status(500).json({ error: message });
@@ -117,7 +126,7 @@ Make the user feel the history. Don't just inform them; entertain them. The user
   });
 
   const distPath = path.join(__dirname, 'dist');
-  const isProd = fs.existsSync(path.join(distPath, 'index.html'));
+  const isProd = fs.existsSync(path.join(distPath, 'index.html')) && process.env.NODE_ENV === 'production';
 
   if (isProd) {
     console.log("Serving production build from /dist");
