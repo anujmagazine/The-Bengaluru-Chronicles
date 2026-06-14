@@ -11,24 +11,30 @@ function App() {
   const [sources, setSources] = useState<GroundingSource[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery || loading) return;
 
     setLoading(true);
     setError(null);
     setData(null);
     setSources([]);
 
-    const response = await fetchPlaceChronicle(query);
+    try {
+      const response = await fetchPlaceChronicle(trimmedQuery);
 
-    if (response.error) {
-      setError(response.error);
-    } else {
-      setData(response.data);
-      setSources(response.sources);
+      if (response.error) {
+        setError(response.error);
+      } else {
+        setData(response.data);
+        setSources(response.sources);
+      }
+    } catch (err) {
+      setError("The chronicler is temporarily unavailable. Please try again.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const suggestions = ["Lavelle Road", "Malleswaram", "Koramangala", "Anil Kumble Circle", "Cubbon Park"];
@@ -86,6 +92,11 @@ function App() {
                   key={s}
                   onClick={() => {
                     setQuery(s);
+                    // Manually trigger search for convenience
+                    setTimeout(() => {
+                      const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+                      handleSearch(fakeEvent);
+                    }, 0);
                   }}
                   className="px-5 py-2 bg-black/30 hover:bg-black/50 backdrop-blur-sm border border-white/10 rounded-full text-emerald-50 transition-all hover:-translate-y-1 shadow-sm text-sm font-medium"
                 >

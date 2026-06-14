@@ -77,20 +77,30 @@ Make the user feel the history. Don't just inform them; entertain them. The user
       const model = genAI.getGenerativeModel({ 
         model: "gemini-1.5-flash",
         systemInstruction: SYSTEM_INSTRUCTION,
+      });
+
+      // Using generateContent with search grounding
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: `Tell me the chronicle of: ${query}. Dig deep for the story and a secret fact. Return ONLY the raw JSON object.` }] }],
         tools: [{ googleSearch: {} }] 
       });
 
-      const result = await model.generateContent(`Tell me the chronicle of: ${query}. Return ONLY the raw JSON object.`);
       const response = await result.response;
-      const text = response.text();
+      let text = response.text();
       
-      const cleanJson = text.replace(/```json|```/g, '').trim();
+      // Robust JSON extraction
+      let cleanJson = text;
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanJson = jsonMatch[0];
+      }
+      
       let data;
       try {
         data = JSON.parse(cleanJson);
       } catch (e) {
-        console.error("Parse Error:", text);
-        return res.status(500).json({ error: "The archives returned unreadable data. Please try another place." });
+        console.error("Parse Error. Raw text:", text);
+        return res.status(500).json({ error: "The archives returned unreadable data. Please try another place or be more specific." });
       }
 
       // Extract grounding sources

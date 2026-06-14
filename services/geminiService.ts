@@ -19,10 +19,15 @@ export const fetchPlaceChronicle = async (query: string): Promise<ChronicleRespo
         const text = await response.text();
         console.error("Non-JSON error response:", text);
         if (text.includes("<!DOCTYPE") || text.includes("<html")) {
-          throw new Error("Server returned an error page. This often happens if the API route is missing or the server crashed.");
+          throw new Error("The chronicler met an unexpected wall. Please wait a moment and try again.");
         }
-        throw new Error(`Server returned an unexpected response (${response.status}): ${text.slice(0, 100)}`);
+        throw new Error(`The archive returned an unexpected format (${response.status}).`);
       }
+    }
+
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("The chronicler's response was not in the expected format.");
     }
 
     return await response.json();
